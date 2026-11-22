@@ -4,7 +4,7 @@
 
 import web_webview from '@ohos.web.webview'
 import  PlatformView from '@ohos/flutter_ohos/src/main/ets/plugin/platform/PlatformView';
-import { WebViewPlatformView } from './WebViewHostApiImpl';
+import { WebViewPlatformView, WebSettingsImpl } from './WebViewHostApiImpl';
 import { Any } from '@ohos/flutter_ohos';
 import { deviceInfo } from '@kit.BasicServicesKit';
 
@@ -16,19 +16,25 @@ export declare class Params {
 @Component
 export struct OhosWebView {
   @ObjectLink params: Params;
+  @ObjectLink settings: WebSettingsImpl;
   webView: WebViewPlatformView = this.params.platformView as WebViewPlatformView;
   controller: web_webview.WebviewController = this.webView.getController();
 
-  @State textZoomRatio: number = this.webView.getWebSettings().getTextZoom();
   @State disposed: boolean = false;
 
   aboutToAppear() {
-    this.webView.getWebSettings().onTextZoomChanged((ratio: number) => {
-      this.textZoomRatio = ratio;
-    });
+    this.webView.aboutToAppear();
     this.webView.setOnDisposeCallback(() => {
       this.disposed = true;
     });
+  }
+
+  aboutToDisappear() {
+    this.webView.aboutToDisappear();
+  }
+
+  onDidBuild() {
+    this.webView.completeConfigurationUpdate();
   }
 
   build() {
@@ -40,7 +46,7 @@ export struct OhosWebView {
             controller: this.controller
           })
           .keyboardAvoidMode(WebKeyboardAvoidMode.RESIZE_VISUAL)
-          .backgroundColor(this.webView.getWebSettings().getBackgroundColor())
+          .backgroundColor(this.settings.backgroundColor)
           .onDownloadStart(this.webView.onDownloadStart)
           .onPageBegin(this.webView.onPageBegin)
           .onPageEnd(this.webView.onPageEnd)
@@ -53,17 +59,20 @@ export struct OhosWebView {
           .onPermissionRequest(this.webView.onPermissionRequest)
           .onConsole(this.webView.onConsoleMessage)
           .onWindowExit(this.webView.onWindowExit)
-          .domStorageAccess(this.webView.getWebSettings().getDomStorageEnabled())
-          .allowWindowOpenMethod(this.webView.getWebSettings().getJavaScriptCanOpenWindowsAutomatically())
+          .domStorageAccess(this.settings.domStorageAccess)
+          .allowWindowOpenMethod(this.settings.allowWindowOpenMethod)
           .multiWindowAccess(false)
-          .javaScriptAccess(this.webView.getWebSettings().getJavaScriptEnabled())
-          .mediaPlayGestureAccess(this.webView.getWebSettings().getMediaPlaybackRequiresUserGesture())
-          .zoomAccess(this.webView.getWebSettings().getSupportZoom())
-          .overviewModeAccess(this.webView.getWebSettings().getLoadWithOverviewMode())
-          .wideViewModeAccess(this.webView.getWebSettings().getUseWideViewPort())
-          .metaViewport(this.webView.getWebSettings().getUseWideViewPort())
-          .fileAccess(this.webView.getWebSettings().getAllowFileAccess())
-          .textZoomRatio(this.textZoomRatio)
+          .javaScriptAccess(this.settings.javaScriptAccess)
+          .mediaPlayGestureAccess(this.settings.mediaPlayGestureAccess)
+          .zoomAccess(this.settings.zoomAccess)
+          .overviewModeAccess(this.settings.overviewModeAccess)
+          .wideViewModeAccess(this.settings.wideViewModeAccess)
+          .metaViewport(this.settings.wideViewModeAccess)
+          .fileAccess(this.settings.fileAccess)
+          .darkMode(this.settings.darkMode)
+          .forceDarkAccess(this.settings.darkMode === WebDarkMode.On)
+          .runJavaScriptOnDocumentStart(this.settings.documentStartScripts)
+          .textZoomRatio(this.settings.textZoomRatio)
           .onScroll(this.webView.onScroll)
           .onControllerAttached(this.webView.onControllerAttached)
           .onWindowNew((event: Any) => {
@@ -86,7 +95,7 @@ export struct OhosWebView {
           .onAlert(this.webView.onJsAlert)
           .onConfirm(this.webView.onJsConfirm)
           .onPrompt(this.webView.onJsPrompt)
-          .mixedMode(MixedMode.All)
+          .mixedMode(this.settings.mixedMode)
           .onOverrideUrlLoading(this.webView.onOverrideUrlLoading)
           .onFullScreenEnter(this.webView.onFullScreenEnter)
           .onFullScreenExit(this.webView.onFullScreenExit)
@@ -99,6 +108,7 @@ export struct OhosWebView {
 export function WebBuilder(params: Params) {
   OhosWebView({
     params: params,
+    settings: (params.platformView as WebViewPlatformView).getWebSettings(),
     webView: params.platformView as WebViewPlatformView,
     controller: (params.platformView as WebViewPlatformView).getController()
   }).backgroundColor(Color.Transparent)

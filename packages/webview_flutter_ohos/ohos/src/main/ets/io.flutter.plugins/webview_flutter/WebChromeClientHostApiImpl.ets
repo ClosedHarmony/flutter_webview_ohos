@@ -13,6 +13,7 @@ import { WebViewPlatformView } from './WebViewHostApiImpl'
 import { WebViewClient } from './WebViewClientHostApiImpl';
 import { BuilderParams, DVModelParameters, DVModel } from '@ohos/flutter_ohos/src/main/ets/view/DynamicView/dynamicView'
 import web_webview from '@ohos.web.webview'
+import { fileUri } from '@kit.CoreFileKit';
 
 const TAG: string = "WebChromeClientHostApiImpl";
 
@@ -175,7 +176,8 @@ class WebChromeClientImpl implements WebChromeClient {
       this, webView, fileChooserParams, {
       reply: (reply: Array<string> | null) => {
         if (currentReturnValueForOnShowFileChooser && reply) {
-          filePathCallback.handleFileList(reply);
+          filePathCallback.handleFileList(reply.map((path: string) =>
+            path.startsWith('/') ? fileUri.getUriFromPath(path) : path));
         }
       }
     }

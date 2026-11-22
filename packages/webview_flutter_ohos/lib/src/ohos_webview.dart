@@ -5,7 +5,7 @@
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart' show BinaryMessenger;
+import 'package:flutter/services.dart' show BinaryMessenger, MethodChannel, StandardMethodCodec;
 
 import 'package:flutter/widgets.dart' show WidgetsFlutterBinding;
 
@@ -1333,6 +1333,19 @@ class PermissionRequest extends OhosObject {
       'ohos.webkit.resource.PROTECTED_MEDIA_ID';
 
   final PermissionRequestHostApiImpl _permissionRequestApi;
+
+  /// Origin of the frame that created this native permission request.
+  Future<String> getOrigin() async =>
+      (await MethodChannel(
+        'plugins.flutter.io/webview_ohos/configuration',
+        const StandardMethodCodec(),
+        _permissionRequestApi.binaryMessenger,
+      ).invokeMethod<String>(
+        'getPermissionRequestOrigin',
+        <String, Object>{
+          'instanceId': _permissionRequestApi.instanceManager.getIdentifier(this)!,
+        },
+      ))!;
 
   /// Resources the web page is trying to access.
   final List<String> resources;

@@ -40,6 +40,9 @@ import { InstanceManager } from './InstanceManager';
 import { JavaScriptChannelCreator, JavaScriptChannelHostApiImpl } from './JavaScriptChannelHostApiImpl';
 import { PermissionRequestHostApiImpl } from './PermissionRequestHostApiImpl';
 import { WebViewHostApiImpl, WebViewProxy } from './WebViewHostApiImpl';
+import { WebViewPlatformView } from './WebViewHostApiImpl';
+import MethodChannel, { MethodCallHandler, MethodResult } from '@ohos/flutter_ohos/src/main/ets/plugin/common/MethodChannel';
+import MethodCall from '@ohos/flutter_ohos/src/main/ets/plugin/common/MethodCall';
 import { FlutterWebViewFactory } from './FlutterWebViewFactory';
 import { JavaScriptChannelFlutterApiImpl } from './JavaScriptChannelFlutterApiImpl';
 import { WebViewClientCreator, WebViewClientHostApiImpl } from './WebViewClientHostApiImpl';
@@ -50,7 +53,62 @@ import { WebSettingsCreator, WebSettingsHostApiImpl } from './WebSettingsHostApi
 import { WebStorageHostApiImpl } from './WebStorageHostApiImpl';
 
 const TAG:string = "WebViewFlutterPlugin";
-export class WebViewFlutterPlugin implements FlutterPlugin {
+export class WebViewFlutterPlugin implements FlutterPlugin, MethodCallHandler {
+  private configurationChannel: MethodChannel | null = null;
+
+  async onMethodCall(call: MethodCall, result: MethodResult): Promise<void> {
+    try {
+      const args = call.args as Map<string, Object>;
+      switch (call.method) {
+        case 'getCookieHeader':
+          result.success(CookieManagerHostApiImpl.getCookieHeader(args.get('url') as string));
+          break;
+        case 'setCookieHeaders':
+          CookieManagerHostApiImpl.setCookieHeaders(args.get('url') as string, args.get('cookies') as string[]);
+          result.success(null);
+          break;
+        case 'clearCookies':
+          CookieManagerHostApiImpl.clearCookies();
+          result.success(null);
+          break;
+        case 'clearCookiesForUrl':
+          CookieManagerHostApiImpl.clearCookiesForUrl(args.get('url') as string);
+          result.success(null);
+          break;
+        case 'addDocumentStartJavaScript':
+          await this.viewFor(args.get('instanceId') as number)
+            .addDocumentStartJavaScript(args.get('source') as string);
+          result.success(null);
+          break;
+        case 'setDarkMode':
+          await this.viewFor(args.get('instanceId') as number).setDarkMode(args.get('enabled') as boolean);
+          result.success(null);
+          break;
+        case 'configureLayout':
+          await this.viewFor(args.get('instanceId') as number).configureLayout(
+            args.get('useWideViewPort') as boolean,
+            args.get('textZoom') as number,
+            args.get('allowMixedContent') as boolean);
+          result.success(null);
+          break;
+        case 'getPermissionRequestOrigin': {
+          const request = this.instanceManager?.getInstance(args.get('instanceId') as number) as PermissionRequest;
+          result.success(request.getOrigin());
+          break;
+        }
+        default:
+          result.notImplemented();
+      }
+    } catch (error) {
+      result.error('WEBVIEW_CONFIGURATION_ERROR', (error as Error).message, null);
+    }
+  }
+
+  private viewFor(identifier: number): WebViewPlatformView {
+    const view: Object | undefined = this.instanceManager?.getInstance(identifier);
+    if (!(view instanceof WebViewPlatformView)) throw new Error('Unknown WebView instance');
+    return view;
+  }
   getUniqueClassName(): string {
     return TAG;
   }
@@ -164,9 +222,14 @@ export class WebViewFlutterPlugin implements FlutterPlugin {
       new PluginBindingFlutterAssetManager(
         binding.getApplicationContext().resourceManager, binding.getFlutterAssets())
     );
+    this.configurationChannel = new MethodChannel(binding.getBinaryMessenger(),
+      'plugins.flutter.io/webview_ohos/configuration');
+    this.configurationChannel.setMethodCallHandler(this);
   }
 
   onDetachedFromEngine(binding: FlutterPluginBinding) {
+    this.configurationChannel?.setMethodCallHandler(null);
+    this.configurationChannel = null;
     if (this.instanceManager != null) {
       this.instanceManager.stopFinalizationListener();
       this.instanceManager = null;

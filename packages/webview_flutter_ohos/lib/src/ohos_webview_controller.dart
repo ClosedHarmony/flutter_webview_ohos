@@ -79,6 +79,39 @@ class OhosWebViewPermissionResourceType extends WebViewPermissionResourceType {
 
 /// Implementation of the [PlatformWebViewController] with the Ohos WebView API.
 class OhosWebViewController extends PlatformWebViewController {
+  static const MethodChannel _configurationChannel =
+      MethodChannel('plugins.flutter.io/webview_ohos/configuration');
+
+  /// Installs a script before page scripts on future navigations, in call order.
+  Future<void> addDocumentStartJavaScript(String source) =>
+      _configurationChannel.invokeMethod<void>(
+        'addDocumentStartJavaScript',
+        <String, Object>{'instanceId': webViewIdentifier, 'source': source},
+      );
+
+  /// Applies ArkWeb dark mode and forced darkening to the current view.
+  Future<void> setDarkMode(bool enabled) =>
+      _configurationChannel.invokeMethod<void>(
+        'setDarkMode',
+        <String, Object>{'instanceId': webViewIdentifier, 'enabled': enabled},
+      );
+
+  /// Applies viewport, text zoom and mixed-content preferences before loading.
+  Future<void> configureLayout({
+    required bool useWideViewPort,
+    required int textZoom,
+    required bool allowMixedContent,
+  }) =>
+      _configurationChannel.invokeMethod<void>(
+        'configureLayout',
+        <String, Object>{
+          'instanceId': webViewIdentifier,
+          'useWideViewPort': useWideViewPort,
+          'textZoom': textZoom,
+          'allowMixedContent': allowMixedContent,
+        },
+      );
+
   /// Creates a new [OhosWebViewController].
   OhosWebViewController(PlatformWebViewControllerCreationParams params)
       : super.implementation(params is OhosWebViewControllerCreationParams
@@ -714,6 +747,9 @@ class OhosWebViewPermissionRequest extends PlatformWebViewPermissionRequest {
   }) : _request = request;
 
   final ohos_webview.PermissionRequest _request;
+
+  /// The requesting frame's origin, captured by the native permission request.
+  Future<String> getOrigin() => _request.getOrigin();
 
   @override
   Future<void> grant() {

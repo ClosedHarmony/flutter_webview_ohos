@@ -289,7 +289,76 @@ export class WebViewHostApiImpl extends WebViewHostApi {
   }
 }
 
+interface ConfigurationCompletion {
+  resolve: () => void;
+  reject: (error: Error) => void;
+}
+
+enum ConfigurationPhase { controllerOnly, nativeViewCreated, disposed }
+
 export class WebViewPlatformView extends PlatformView {
+  private configurationCompletions: ConfigurationCompletion[] = [];
+  private configurationPhase: ConfigurationPhase = ConfigurationPhase.controllerOnly;
+
+  private currentConfiguration(): Promise<void> {
+    if (this.configurationPhase === ConfigurationPhase.disposed) {
+      return Promise.reject(new Error('WebView was disposed'));
+    }
+    if (this.configurationCompletions.length === 0) return Promise.resolve();
+    return new Promise<void>((resolve, reject) => {
+      this.configurationCompletions.push({ resolve, reject });
+    });
+  }
+
+  private updateConfiguration(change: () => void): Promise<void> {
+    if (this.configurationPhase === ConfigurationPhase.disposed) {
+      return Promise.reject(new Error('WebView was disposed'));
+    }
+    if (this.configurationPhase === ConfigurationPhase.controllerOnly) {
+      change();
+      return this.currentConfiguration();
+    }
+    return new Promise<void>((resolve, reject) => {
+      this.configurationCompletions.push({ resolve, reject });
+      change();
+    });
+  }
+
+  completeConfigurationUpdate(): void {
+    const completions = this.configurationCompletions;
+    this.configurationCompletions = [];
+    for (const completion of completions) completion.resolve();
+  }
+
+  addDocumentStartJavaScript(source: string): Promise<void> {
+    const settings = this.getWebSettings();
+    if (source.length === 0 || settings.documentStartScripts.some((item: ScriptItem) => item.script === source)) {
+      return this.currentConfiguration();
+    }
+    return this.updateConfiguration(() => {
+      const item: ScriptItem = { script: source, scriptRules: ['*'] };
+      settings.documentStartScripts = settings.documentStartScripts.concat([item]);
+    });
+  }
+
+  setDarkMode(enabled: boolean): Promise<void> {
+    const settings = this.getWebSettings();
+    const mode = enabled ? WebDarkMode.On : WebDarkMode.Off;
+    if (settings.darkMode === mode) return this.currentConfiguration();
+    return this.updateConfiguration(() => { settings.darkMode = mode; });
+  }
+
+  configureLayout(useWideViewPort: boolean, textZoom: number, allowMixedContent: boolean): Promise<void> {
+    const settings = this.getWebSettings();
+    const mixedMode = allowMixedContent ? MixedMode.All : MixedMode.Compatible;
+    if (settings.getUseWideViewPort() === useWideViewPort && settings.getTextZoom() === textZoom &&
+      settings.mixedMode === mixedMode) return this.currentConfiguration();
+    return this.updateConfiguration(() => {
+      settings.setUseWideViewPort(useWideViewPort);
+      settings.setTextZoom(textZoom);
+      settings.mixedMode = mixedMode;
+    });
+  }
 
   private WebCookieManager: web_webview.WebCookieManager = new web_webview.WebCookieManager();
 
@@ -303,7 +372,7 @@ export class WebViewPlatformView extends PlatformView {
 
   private webViewClint: WebViewClient | null = null;
 
-  private webSettings: WebSettings | null = null;
+  private webSettings: WebSettingsImpl | null = null;
 
   private dialogController: CustomDialogController | null = null;
 
@@ -461,6 +530,7 @@ export class WebViewPlatformView extends PlatformView {
   aboutToAppear() {
     //   此处没有调用，说明只有controller，没有webview
     this.isWebviewBinding = true;
+    this.configurationPhase = ConfigurationPhase.nativeViewCreated;
   }
 
   onControllerAttached = () => {
@@ -531,6 +601,10 @@ export class WebViewPlatformView extends PlatformView {
   }
 
   dispose(): void {
+    this.configurationPhase = ConfigurationPhase.disposed;
+    const completions = this.configurationCompletions;
+    this.configurationCompletions = [];
+    for (const completion of completions) completion.reject(new Error('WebView was disposed'));
     this.controller.stopAllMedia();
     this.onDisposeCallback && this.onDisposeCallback();
   }
@@ -594,7 +668,7 @@ export class WebViewPlatformView extends PlatformView {
     return this.dialogController;
   }
 
-  getWebSettings(): WebSettings {
+  getWebSettings(): WebSettingsImpl {
     if (this.webSettings == null) {
       this.webSettings = new WebSettingsImpl(this);
     }
@@ -682,7 +756,11 @@ export class WebViewProxy {
   }
 }
 
-class WebSettingsImpl implements WebSettings {
+@Observed
+export class WebSettingsImpl implements WebSettings {
+  documentStartScripts: ScriptItem[] = [];
+  darkMode: WebDarkMode = WebDarkMode.Off;
+  mixedMode: MixedMode = MixedMode.Compatible;
   private webView: WebViewPlatformView;
   private defaultUserAgent: string = '';
   params: DVModelParameters = new DVModelParameters;
@@ -696,8 +774,7 @@ class WebSettingsImpl implements WebSettings {
   overviewModeAccess : boolean = false;
   wideViewModeAccess: boolean = false;
   fileAccess : boolean = true;
-  textZoomRatio : number = 0;
-  textZoomRatioCallback?: (ratio: number) => void;
+  textZoomRatio : number = 100;
   isAllowFullScreenRotate: boolean = false;
 
   constructor(webView: WebViewPlatformView) {
@@ -802,7 +879,6 @@ class WebSettingsImpl implements WebSettings {
 
   setTextZoom(textZoom: number) {
     this.textZoomRatio = textZoom;
-    this.textZoomRatioCallback && this.textZoomRatioCallback(textZoom);
   }
 
   /**
@@ -841,10 +917,6 @@ class WebSettingsImpl implements WebSettings {
 
   getTextZoom() : number{
     return this.textZoomRatio;
-  }
-
-  onTextZoomChanged(callback: (ratio: number) => void): void {
-    this.textZoomRatioCallback = callback;
   }
 
   setAllowFullScreenRotate(enabled: boolean) {

@@ -61,8 +61,6 @@ export interface WebSettings {
 
   getUserAgentString(): Promise<string>;
   
-  onTextZoomChanged(callback: (ratio: number) => void): void;
-
   setAllowFullScreenRotate(enabled: boolean): void;
   
   getAllowFullScreenRotate(): boolean;
