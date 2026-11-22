@@ -1,6 +1,6 @@
-## NEXT
+## 3.15.0
 
-* Updates minimum supported SDK version to Flutter 3.7/Dart 2.19.
+* Adds the OpenHarmony platform implementation.
 
 ## 3.14.0
 

@@ -378,7 +378,6 @@ class WebViewHostApiImpl extends WebViewHostApi {
       client != null ? instanceManager.getIdentifier(client) : null,
     );
   }
-
 }
 
 /// Flutter API implementation for [WebView].
@@ -734,6 +733,8 @@ class WebViewClientFlutterApiImpl extends WebViewClientFlutterApi {
     );
     // ignore: deprecated_member_use_from_same_package
     if (instance!.onReceivedError != null) {
+      // Required for compatibility with pre-23 OpenHarmony WebViews.
+      // ignore: deprecated_member_use_from_same_package
       instance.onReceivedError!(
         webViewInstance!,
         errorCode,

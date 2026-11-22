@@ -68,6 +68,8 @@ class SurfaceOhosWebView extends OhosWebView {
               // OhosViewSurface. This switches the WebView to Hybrid
               // Composition when the background color is not 100% opaque.
               hybridComposition:
+                  // Keep compatibility with Flutter versions before Color.a.
+                  // ignore: deprecated_member_use
                   backgroundColor != null && backgroundColor.opacity < 1.0,
               id: params.id,
               viewType: 'plugins.flutter.io/webview',

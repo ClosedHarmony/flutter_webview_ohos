@@ -6,7 +6,7 @@
 
 import PlatformView, { Params } from '@ohos/flutter_ohos/src/main/ets/plugin/platform/PlatformView'
 import { DVModel, DVModelParameters } from '@ohos/flutter_ohos/src/main/ets/view/DynamicView/dynamicView'
-import { Result, WebViewHostApi, WebViewPoint } from './GeneratedOhosWebView'
+import { Result, WebViewHostApi, WebViewPoint, HttpAuthHandler } from './GeneratedOhosWebView'
 import web_webview from '@ohos.web.webview'
 import { WebBuilder, OhosWebView } from './OhosWebView'
 import { createDVModelFromJson } from '@ohos/flutter_ohos/src/main/ets/view/DynamicView/dynamicViewJson'
@@ -27,6 +27,14 @@ import window from '@ohos.window'
 import display from '@ohos.display'
 
 const TAG: string = "WebViewHostApiImpl";
+
+export declare class PlatformViewVisibleAreaEventOptions {
+  enable: boolean // Enable variable area monitoring
+  ratios: Array<number> // Ratio thresholds for visible area changes, e.g., [0.0, 1.0] means 0% to 100% visible
+  expectedUpdateInterval: number // Expected interval for visible area updates in milliseconds
+  onInactiveThreshold: number // Texture continuous production pause operation visible area threshold
+  onActiveThreshold: number // Texture continuous production activation operation visible area threshold
+}
 
 export class WebViewHostApiImpl extends WebViewHostApi {
   private instanceManager: InstanceManager;
@@ -58,7 +66,7 @@ export class WebViewHostApiImpl extends WebViewHostApi {
   create(instanceId: number): void {
     let displayProxy: DisplayListenerProxy = new DisplayListenerProxy();
     displayProxy.onPreWebViewInitialization();
-    const webView: WebViewPlatformView = this.webViewProxy.createWebView();
+    const webView: WebViewPlatformView = this.webViewProxy.createWebView(this.binaryMessenger, this.instanceManager);
     displayProxy.onPostWebViewInitialization();
     this.instanceManager.addDartCreatedInstance(webView, instanceId);
   }
@@ -128,8 +136,9 @@ export class WebViewHostApiImpl extends WebViewHostApi {
     }
   }
 
-  getUrl(instanceId: number): string {
+  async getUrl(instanceId: number): Promise<string> {
     const webView: WebViewPlatformView = this.instanceManager.getInstance(instanceId);
+    await webView.waitControllerAttached();
     return webView.getController().getUrl();
   }
 
@@ -160,7 +169,11 @@ export class WebViewHostApiImpl extends WebViewHostApi {
 
   clearCache(instanceId: number, includeDiskFiles: boolean): void {
     const webView: WebViewPlatformView = this.instanceManager.getInstance(instanceId);
-    webView.getController().removeCache(includeDiskFiles);
+    webView.waitControllerAttached().then(() => {
+      webView.getController().removeCache(includeDiskFiles);
+    }).catch((err: ESObject) => {
+      Log.e(TAG, "clearCache failed: controller not attached, instanceId=" + instanceId + ", err=" + err);
+    });
   }
 
   evaluateJavascript(instanceId: number, javascriptString: string, result: Result<string>): void {
@@ -185,12 +198,20 @@ export class WebViewHostApiImpl extends WebViewHostApi {
 
   scrollTo(instanceId: number, x: number, y: number): void {
     const webView: WebViewPlatformView = this.instanceManager.getInstance(instanceId);
-    webView.getController().scrollTo(x, y);
+    webView.waitControllerAttached().then(() => {
+      webView.getController().scrollTo(x, y);
+      webView.setScrollPosition(x, y);
+    });
   }
 
   scrollBy(instanceId: number, x: number, y: number): void {
     const webView: WebViewPlatformView = this.instanceManager.getInstance(instanceId);
-    webView.getController().scrollBy(x, y);
+    webView.waitControllerAttached().then(() => {
+      const currentX = webView.getScrollX();
+      const currentY = webView.getScrollY();
+      webView.getController().scrollBy(x, y);
+      webView.setScrollPosition(currentX + x, currentY + y);
+    });
   }
 
   getScrollX(instanceId: number): number {
@@ -206,7 +227,7 @@ export class WebViewHostApiImpl extends WebViewHostApi {
   getScrollPosition(instanceId: number): WebViewPoint {
     const webView: WebViewPlatformView = this.instanceManager.getInstance(instanceId);
     return WebViewPoint.Builder()
-      .setX(webView.getScrollY())
+      .setX(webView.getScrollX())
       .setY(webView.getScrollY())
       .build();
   }
@@ -225,10 +246,11 @@ export class WebViewHostApiImpl extends WebViewHostApi {
     const javaScriptChannel: JavaScriptChannel = this.instanceManager.getInstance(javaScriptChannelInstanceId);
     await webView.waitControllerAttached();
     try {
+      webView.addJavaScriptChannel(javaScriptChannel);
       webView.getController().registerJavaScriptProxy(
         {
-          postMessage: (message: string) => {
-            javaScriptChannel.postMessage(message)
+          postMessage: (message: ESObject) => {
+            javaScriptChannel.postMessage(String(message))
           },
         },
         javaScriptChannel.getJavaScriptChannelName(),
@@ -243,7 +265,9 @@ export class WebViewHostApiImpl extends WebViewHostApi {
   removeJavaScriptChannel(instanceId: number, javaScriptChannelInstanceId: number): void {
     const webView: WebViewPlatformView = this.instanceManager.getInstance(instanceId);
     const javaScriptChannel: JavaScriptChannel = this.instanceManager.getInstance(javaScriptChannelInstanceId);
+    webView.removeJavaScriptChannel(javaScriptChannel.getJavaScriptChannelName());
     webView.getController().deleteJavaScriptRegister(javaScriptChannel.getJavaScriptChannelName());
+    this.instanceManager.remove(javaScriptChannelInstanceId);
   }
 
   setDownloadListener(instanceId: number, listenerInstanceId: number) {
@@ -258,13 +282,6 @@ export class WebViewHostApiImpl extends WebViewHostApi {
 
   getInstanceManager(): InstanceManager {
     return this.instanceManager;
-  }
-
-
-  onScrollChangedImpl(left: number, top: number, oldLeft: number, oldTop: number) {
-    this.onScrollChangedImpl(left, top, oldLeft, oldTop);
-    this.api?.onScrollChanged(
-        this, left, top, oldLeft, oldTop, {reply: () => {} });
   }
 
   setApi(api: WebViewFlutterApiImpl) {
@@ -302,6 +319,29 @@ export class WebViewPlatformView extends PlatformView {
 
   private rotation: number = 0;
 
+  userAgentString: string = '';
+
+  isWebviewBinding: boolean = false;
+
+  private webViewFlutterApi: WebViewFlutterApiImpl;
+
+  private javaScriptChannels: Map<string, JavaScriptChannel> = new Map();
+
+  private visibleAreaEventEnable: boolean = true;
+
+  private visibleAreaEventRatios: Array<number> = [0, 0.1, 0.2, 0.5, 0.8, 1];
+
+  private visibleAreaEventExpectedUpdateInterval: number = 1;
+
+  private visibleAreaEventInactiveThreshold: number = 0;
+
+  private visibleAreaEventActiveThreshold: number = 0.1;
+
+  constructor(binaryMessenger: BinaryMessenger, instanceManager: InstanceManager) {
+    super();
+    this.webViewFlutterApi = new WebViewFlutterApiImpl(binaryMessenger, instanceManager);
+  }
+
   onDownloadStart = (event: ESObject) => {
     if (this.downloadListener && this.downloadListener.onDownloadStart) {
       this.downloadListener.onDownloadStart(
@@ -337,11 +377,9 @@ export class WebViewPlatformView extends PlatformView {
     if(request.getRequestUrl() == 'loaded:///'){
       return true;
     }
-
-    if (this.webViewClint && request.isRequestGesture()) {
+    if (this.webViewClint) {
       return this.webViewClint.shouldOverrideUrlLoading(this, request);
     }
-
     return false;
   }
 
@@ -351,15 +389,25 @@ export class WebViewPlatformView extends PlatformView {
     }
   }
 
+  onHttpAuthRequest = (event: ESObject): boolean => {
+    Log.i(TAG, "onHttpAuthRequest host=" + event.host + " realm=" + event.realm);
+    if (this.webViewClint) {
+      const wrappedHandler = new OhosHttpAuthHandler(event.handler);
+      this.webViewClint.onReceivedHttpAuthRequest(this, wrappedHandler, event.host, event.realm);
+      return true;
+    }
+    return false;
+  }
+
   onProgressChange = (event: ESObject) => {
     if (this.webChromeClient) {
-      this.webChromeClient.onProgressChanged(this, event.newProgress)
+      this.webChromeClient.onProgressChanged(this, event.newProgress);
     }
   }
 
   onGeolocationShow = (event: ESObject) => {
     if (this.webChromeClient) {
-      this.webChromeClient.onGeolocationPermissionsShowPrompt(event.origin, event.geolocation)
+      this.webChromeClient.onGeolocationPermissionsShowPrompt(event.origin, event.geolocation);
     }
   }
 
@@ -371,7 +419,7 @@ export class WebViewPlatformView extends PlatformView {
 
   onShowFileSelector = (event: ESObject) => {
     if (this.webChromeClient) {
-      return this.webChromeClient.onShowFileChooser(this, event.result, event.fileSelector)
+      return this.webChromeClient.onShowFileChooser(this, event.result, event.fileSelector);
     }
     return false;
   }
@@ -384,10 +432,8 @@ export class WebViewPlatformView extends PlatformView {
 
   onConsoleMessage = (event: ESObject) => {
     let message:ConsoleMessage = event.message;
-    if (message.getMessageLevel() == MessageLevel.Error || message.getMessageLevel() == MessageLevel.Warn) {
-      if (this.webChromeClient) {
+    if (this.webChromeClient) {
         this.webChromeClient.onConsoleMessage(event.message);
-      }
     } else {
       Log.d(TAG, "logLevel: " + message.getMessageLevel() + " "+ message.getMessage());
     }
@@ -396,7 +442,7 @@ export class WebViewPlatformView extends PlatformView {
 
   onWindowNew = (event: ESObject) => {
     if (this.webChromeClient) {
-      this.webChromeClient.onCreateWindow(this, event.isAlert, event.isUserTrigger, event.handler)
+      this.webChromeClient.onCreateWindow(this, event.isAlert, event.isUserTrigger, event.handler);
     }
   }
 
@@ -407,13 +453,29 @@ export class WebViewPlatformView extends PlatformView {
   }
 
   onScroll = (event: ESObject) => {
+    this.webViewFlutterApi.onScrollChanged(this, event.xOffset, event.yOffset, this.scrollX, this.scrollY, {reply: () => {}})
     this.scrollX = event.xOffset;
     this.scrollY = event.yOffset;
   }
 
+  aboutToAppear() {
+    //   此处没有调用，说明只有controller，没有webview
+    this.isWebviewBinding = true;
+  }
+
   onControllerAttached = () => {
     Log.d(TAG, "onControllerAttached");
-    this.controllerAttached = true
+    if (this.userAgentString) {
+      this.setCustomUserAgent(this.userAgentString);
+      this.controller.refresh();
+    }
+    this.controllerAttached = true;
+    this.reRegisterJavaScriptChannels();
+  }
+
+  aboutToDisappear() {
+    // 解除绑定controller
+    this.isWebviewBinding = false;
   }
 
   setOnDisposeCallback(callback: () => void) {
@@ -446,9 +508,8 @@ export class WebViewPlatformView extends PlatformView {
     let windowClass = context.windowStage.getMainWindowSync();
     windowClass.setWindowSystemBarEnable([]);
     this.rotation = windowClass.getPreferredOrientation();
-    let orientation: number = display.getDefaultDisplaySync().orientation;
     let isAllowFullScreenRotate = this.getWebSettings()?.getAllowFullScreenRotate();
-    if (isAllowFullScreenRotate && (orientation == display.Orientation.PORTRAIT || orientation == display.Orientation.PORTRAIT_INVERTED)) {
+    if (isAllowFullScreenRotate) {
       windowClass.setPreferredOrientation(window.Orientation.LANDSCAPE);
     }
   }
@@ -458,8 +519,9 @@ export class WebViewPlatformView extends PlatformView {
     let windowClass = context.windowStage.getMainWindowSync();
     windowClass.setWindowSystemBarEnable(['status', 'navigation']);
     windowClass.setPreferredOrientation(this.rotation);
+    this.reRegisterJavaScriptChannels();
   }
-  
+
   getType(): string {
     return 'web';
   }
@@ -473,8 +535,31 @@ export class WebViewPlatformView extends PlatformView {
     this.onDisposeCallback && this.onDisposeCallback();
   }
 
+  getPlatformViewVisibleAreaEventOptions(): PlatformViewVisibleAreaEventOptions {
+    return {
+      enable: this.visibleAreaEventEnable,
+      ratios: this.visibleAreaEventRatios,
+      expectedUpdateInterval: this.visibleAreaEventExpectedUpdateInterval,
+      onInactiveThreshold : this.visibleAreaEventInactiveThreshold,
+      onActiveThreshold : this.visibleAreaEventActiveThreshold
+    } as PlatformViewVisibleAreaEventOptions;
+  }
+
+  onInactive(): void {
+    this.controller.onInactive();
+  }
+
+  onActive(): void {
+    this.controller.onActive();
+  }
+
   getController(): web_webview.WebviewController {
     return this.controller;
+  }
+
+  setCustomUserAgent(userAgentString: string) {
+    this.userAgentString = userAgentString;
+    this.controller.setCustomUserAgent(userAgentString);
   }
 
   setUrl(url: string): void {
@@ -486,7 +571,7 @@ export class WebViewPlatformView extends PlatformView {
   }
 
   getWebCookieManager(): web_webview.WebCookieManager {
-    return this.WebCookieManager
+    return this.WebCookieManager;
   }
 
   setDownloadListener(listener: DownloadListener) {
@@ -524,13 +609,19 @@ export class WebViewPlatformView extends PlatformView {
     return this.scrollY;
   }
 
+  setScrollPosition(x: number, y: number): void {
+    this.scrollX = x;
+    this.scrollY = y;
+    this.webViewFlutterApi.onScrollChanged(this, x, y, this.scrollX, this.scrollY, {reply: () => {}});
+  }
+
   setReturnValueForShouldOverrideUrlLoading(value: boolean) {
     this.returnValueForShouldOverrideUrlLoading = value;
   }
 
   async waitControllerAttached() {
     if (!this.controllerAttached) {
-      await this.checkControllerAttached()
+      await this.checkControllerAttached();
     }
   }
 
@@ -539,21 +630,51 @@ export class WebViewPlatformView extends PlatformView {
       try {
         let intervalId = setInterval(() => {
           if (this.controllerAttached) {
-            clearInterval(intervalId)
-            resolve()
+            clearInterval(intervalId);
+            resolve();
           }
         }, 20)
       } catch (err) {
-        reject()
+        reject();
       }
     })
+  }
+
+  addJavaScriptChannel(channel: JavaScriptChannel) {
+    this.javaScriptChannels.set(channel.getJavaScriptChannelName(), channel);
+  }
+
+  removeJavaScriptChannel(channelName: string) {
+    this.javaScriptChannels.delete(channelName);
+  }
+
+  reRegisterJavaScriptChannels() {
+    if (this.javaScriptChannels.size === 0) {
+      return;
+    }
+    try {
+      this.javaScriptChannels.forEach((channel: JavaScriptChannel, channelName: string) => {
+        this.controller.registerJavaScriptProxy(
+          {
+            postMessage: (message: string) => {
+              channel.postMessage(message)
+            },
+          },
+          channelName,
+          ["postMessage"]
+        )
+      })
+      this.controller.refresh()
+    } catch (err) {
+      Log.e(TAG, "reRegisterJavaScriptChannels err = " + err);
+    }
   }
 
 }
 
 export class WebViewProxy {
-  createWebView(): WebViewPlatformView {
-    return new WebViewPlatformView();
+  createWebView(binaryMessenger:BinaryMessenger, instanceManager:InstanceManager): WebViewPlatformView {
+    return new WebViewPlatformView(binaryMessenger, instanceManager);
   }
 
   setWebContentsDebuggingEnabled(enabled: boolean): void {
@@ -563,6 +684,7 @@ export class WebViewProxy {
 
 class WebSettingsImpl implements WebSettings {
   private webView: WebViewPlatformView;
+  private defaultUserAgent: string = '';
   params: DVModelParameters = new DVModelParameters;
   domStorageAccess: boolean = false;
   allowWindowOpenMethod : boolean = false;
@@ -627,9 +749,7 @@ class WebSettingsImpl implements WebSettings {
 
   async setUserAgentString(userAgentString: string) {
     await this.webView.waitControllerAttached();
-    this.webView.getController().setCustomUserAgent(userAgentString);
-    // 解决webview无法返回首页的问题，参考文档：https://developer.huawei.com/consumer/cn/doc/harmonyos-faqs-V5/faqs-arkweb-88-V5
-    this.webView.getController().loadUrl(this.webView.getUrl())
+    this.webView.setCustomUserAgent(userAgentString);
   }
 
   setMediaPlaybackRequiresUserGesture(require: boolean) {
@@ -685,9 +805,38 @@ class WebSettingsImpl implements WebSettings {
     this.textZoomRatioCallback && this.textZoomRatioCallback(textZoom);
   }
 
-   async getUserAgentString(): Promise<string> {
-    await this.webView.waitControllerAttached();
-    return this.webView.getController().getCustomUserAgent();
+  /**
+   * 正常从getCustomUserAgent获取userAgent，需要先绑定webview
+   * 如果没有绑定webview或者解绑，需要从缓存中获取，或者获取默认的useragent
+   * 获取默认的时候，需要先initializeWebEngine，整个APP仅需调用一次
+   *
+   * */
+
+  async getUserAgentString(): Promise<string> {
+    try {
+      await this.webView.waitControllerAttached();
+    } catch(err) {
+      Log.e(TAG, "getUserAgentString err = " + err)
+    }
+    if (this.webView.userAgentString) {
+      return this.webView.userAgentString;
+    }
+
+    if (this.webView.isWebviewBinding) {
+      return this.webView.getController().getCustomUserAgent();
+    }
+
+    if (this.defaultUserAgent) {
+      //  整个app只需要一次initializeWebEngine。
+      return this.defaultUserAgent;
+    }
+
+    if (typeof (web_webview.WebviewController as ESObject)?.getDefaultUserAgent === 'function') {
+    web_webview.WebviewController.initializeWebEngine();
+      this.defaultUserAgent = (web_webview.WebviewController as ESObject)?.getDefaultUserAgent();
+    }
+
+    return this.defaultUserAgent;
   }
 
   getTextZoom() : number{
@@ -704,5 +853,29 @@ class WebSettingsImpl implements WebSettings {
 
   getAllowFullScreenRotate() : boolean {
     return this.isAllowFullScreenRotate;
+  }
+}
+
+class OhosHttpAuthHandler implements HttpAuthHandler {
+  private nativeHandler: ESObject;
+  private savedUsername: string = '';
+  private savedPassword: string = '';
+
+  constructor(handler: ESObject) {
+    this.nativeHandler = handler;
+  }
+
+  cancel(): void {
+    this.nativeHandler.cancel();
+  }
+
+  proceed(username: string, password: string): void {
+    this.savedUsername = username;
+    this.savedPassword = password;
+    this.nativeHandler.confirm(username, password);
+  }
+
+  useHttpAuthUsernamePassword(): boolean {
+    return this.nativeHandler.isHttpAuthInfoSaved?.() ?? false;
   }
 }

@@ -48,8 +48,7 @@ class WebViewOhosWidget extends StatefulWidget {
   final ohos_webview.FlutterAssetManager flutterAssetManager;
 
   /// Callback to build a widget once [ohos_webview.WebView] has been initialized.
-  final Widget Function(WebViewOhosPlatformController controller)
-      onBuildWidget;
+  final Widget Function(WebViewOhosPlatformController controller) onBuildWidget;
 
   /// Manages the JavaScript storage APIs.
   final ohos_webview.WebStorage? webStorage;
@@ -246,8 +245,7 @@ class WebViewOhosPlatformController extends WebViewPlatformController {
     this,
     (WeakReference<WebViewOhosPlatformController> weakReference) {
       return (_, int progress) {
-        final WebViewOhosPlatformController? controller =
-            weakReference.target;
+        final WebViewOhosPlatformController? controller = weakReference.target;
         if (controller != null && controller._hasProgressTracking) {
           controller.callbacksHandler.onProgress(progress);
         }
@@ -303,7 +301,7 @@ class WebViewOhosPlatformController extends WebViewPlatformController {
     );*/
 
     webView.settings.setAllowFileAccess(true);
-    final String  url = "resources/rawfile/" + assetFilePath;
+    final String url = "resources/rawfile/" + assetFilePath;
     return webView.loadUrl(url, <String, String>{});
   }
 
@@ -587,8 +585,7 @@ class WebViewOhosPlatformController extends WebViewPlatformController {
 }
 
 /// Exposes a channel to receive calls from javaScript.
-class WebViewOhosJavaScriptChannel
-    extends ohos_webview.JavaScriptChannel {
+class WebViewOhosJavaScriptChannel extends ohos_webview.JavaScriptChannel {
   /// Creates a [WebViewOhosJavaScriptChannel].
   WebViewOhosJavaScriptChannel(
     super.channelName,
@@ -648,6 +645,8 @@ class WebViewProxy {
       onPageStarted: onPageStarted,
       onPageFinished: onPageFinished,
       onReceivedRequestError: onReceivedRequestError,
+      // Required for compatibility with pre-23 OpenHarmony WebViews.
+      // ignore: deprecated_member_use_from_same_package
       onReceivedError: onReceivedError,
       requestLoading: requestLoading,
       urlLoading: urlLoading,

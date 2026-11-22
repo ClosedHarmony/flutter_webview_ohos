@@ -599,6 +599,8 @@ class WebSettings extends OhosObject {
 
   /// Sets the background color of this WebView.
   Future<void> setBackgroundColor(Color color) {
+    // Keep compatibility with Flutter versions before Color.toARGB32.
+    // ignore: deprecated_member_use
     return api.setBackgroundColorFromInstance(this, color.value);
   }
 
@@ -953,6 +955,8 @@ class WebViewClient extends OhosObject {
       onPageStarted: onPageStarted,
       onPageFinished: onPageFinished,
       onReceivedRequestError: onReceivedRequestError,
+      // Required for compatibility with pre-23 OpenHarmony WebViews.
+      // ignore: deprecated_member_use_from_same_package
       onReceivedError: onReceivedError,
       requestLoading: requestLoading,
       urlLoading: urlLoading,

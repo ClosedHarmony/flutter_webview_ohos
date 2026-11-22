@@ -3,13 +3,19 @@
 // found in the LICENSE_ODID file.
 
 import web_webview from '@ohos.web.webview'
-import { Params } from '@ohos/flutter_ohos/src/main/ets/plugin/platform/PlatformView';
+import  PlatformView from '@ohos/flutter_ohos/src/main/ets/plugin/platform/PlatformView';
 import { WebViewPlatformView } from './WebViewHostApiImpl';
 import { Any } from '@ohos/flutter_ohos';
+import { deviceInfo } from '@kit.BasicServicesKit';
 
+@Observed
+export declare class Params {
+  direction: Direction
+  platformView: PlatformView
+}
 @Component
 export struct OhosWebView {
-  @Prop params: Params;
+  @ObjectLink params: Params;
   webView: WebViewPlatformView = this.params.platformView as WebViewPlatformView;
   controller: web_webview.WebviewController = this.webView.getController();
 
@@ -55,6 +61,7 @@ export struct OhosWebView {
           .zoomAccess(this.webView.getWebSettings().getSupportZoom())
           .overviewModeAccess(this.webView.getWebSettings().getLoadWithOverviewMode())
           .wideViewModeAccess(this.webView.getWebSettings().getUseWideViewPort())
+          .metaViewport(this.webView.getWebSettings().getUseWideViewPort())
           .fileAccess(this.webView.getWebSettings().getAllowFileAccess())
           .textZoomRatio(this.textZoomRatio)
           .onScroll(this.webView.onScroll)
@@ -68,21 +75,19 @@ export struct OhosWebView {
             event.handler.setWebController(newWebViewController);
           })
           .onSslErrorEventReceive((event) => {
-            event.handler.handleConfirm();
+            let handler: ESObject = event.handler as ESObject;
+            if (deviceInfo.sdkApiVersion >= 20) {
+              handler.handleCancel(true);
+            } else {
+              handler.handleCancel();
+            }
           })
+          .onHttpAuthRequest(this.webView.onHttpAuthRequest)
           .onAlert(this.webView.onJsAlert)
           .onConfirm(this.webView.onJsConfirm)
           .onPrompt(this.webView.onJsPrompt)
           .mixedMode(MixedMode.All)
           .onOverrideUrlLoading(this.webView.onOverrideUrlLoading)
-          .gesture(
-            PinchGesture({ fingers: 2 })
-              .onActionUpdate((event: GestureEvent) => {
-                if (event && this.webView.getWebSettings().getSupportZoom()) {
-                  this.controller.zoom(event.scale);
-                }
-              })
-          )
           .onFullScreenEnter(this.webView.onFullScreenEnter)
           .onFullScreenExit(this.webView.onFullScreenExit)
       }
@@ -96,7 +101,7 @@ export function WebBuilder(params: Params) {
     params: params,
     webView: params.platformView as WebViewPlatformView,
     controller: (params.platformView as WebViewPlatformView).getController()
-  })
+  }).backgroundColor(Color.Transparent)
 }
 
 @CustomDialog

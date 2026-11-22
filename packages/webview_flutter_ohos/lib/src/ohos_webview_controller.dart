@@ -5,7 +5,6 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -31,8 +30,7 @@ class OhosWebViewControllerCreationParams
     bool? this.isAllowFullScreenRotate = false,
     @visibleForTesting this.ohosWebViewProxy = const OhosWebViewProxy(),
     @visibleForTesting ohos_webview.WebStorage? ohosWebStorage,
-  })  : ohosWebStorage =
-            ohosWebStorage ?? ohos_webview.WebStorage.instance,
+  })  : ohosWebStorage = ohosWebStorage ?? ohos_webview.WebStorage.instance,
         super();
 
   /// Creates a [OhosWebViewControllerCreationParams] instance based on [PlatformWebViewControllerCreationParams].
@@ -48,13 +46,12 @@ class OhosWebViewControllerCreationParams
     return OhosWebViewControllerCreationParams(
       isAllowFullScreenRotate: isAllowFullScreenRotate,
       ohosWebViewProxy: ohosWebViewProxy,
-      ohosWebStorage:
-          ohosWebStorage ?? ohos_webview.WebStorage.instance,
+      ohosWebStorage: ohosWebStorage ?? ohos_webview.WebStorage.instance,
     );
   }
 
   /// Enables or disables full screen rotate within WebView.
-  bool? isAllowFullScreenRotate;
+  final bool? isAllowFullScreenRotate;
 
   /// Handles constructing objects and calling static methods for the Ohos WebView
   /// native library.
@@ -67,8 +64,7 @@ class OhosWebViewControllerCreationParams
 }
 
 /// Ohos-specific resources that can require permissions.
-class OhosWebViewPermissionResourceType
-    extends WebViewPermissionResourceType {
+class OhosWebViewPermissionResourceType extends WebViewPermissionResourceType {
   const OhosWebViewPermissionResourceType._(super.name);
 
   /// A resource that will allow sysex messages to be sent to or received from
@@ -89,7 +85,10 @@ class OhosWebViewController extends PlatformWebViewController {
             ? params
             : OhosWebViewControllerCreationParams
                 .fromPlatformWebViewControllerCreationParams(params)) {
-    _webView.settings.setAllowFullScreenRotate(params is OhosWebViewControllerCreationParams ? params.isAllowFullScreenRotate ?? false : false);
+    _webView.settings.setAllowFullScreenRotate(
+        params is OhosWebViewControllerCreationParams
+            ? params.isAllowFullScreenRotate ?? false
+            : false);
     _webView.settings.setDomStorageEnabled(true);
     _webView.settings.setJavaScriptCanOpenWindowsAutomatically(true);
     _webView.settings.setSupportMultipleWindows(true);
@@ -105,8 +104,8 @@ class OhosWebViewController extends PlatformWebViewController {
       params as OhosWebViewControllerCreationParams;
 
   /// The native [ohos_webview.WebView] being controlled.
-  late final ohos_webview.WebView _webView =
-      _ohosWebViewParams.ohosWebViewProxy.createOhosWebView(
+  late final ohos_webview.WebView _webView = _ohosWebViewParams.ohosWebViewProxy
+      .createOhosWebView(
           onScrollChanged: withWeakReferenceTo(this,
               (WeakReference<OhosWebViewController> weakReference) {
     return (int left, int top, int oldLeft, int oldTop) async {
@@ -159,8 +158,7 @@ class OhosWebViewController extends PlatformWebViewController {
         (WeakReference<OhosWebViewController> weakReference) {
       return (_, ohos_webview.View view,
           ohos_webview.CustomViewCallback callback) {
-        final OhosWebViewController? webViewController =
-            weakReference.target;
+        final OhosWebViewController? webViewController = weakReference.target;
         if (webViewController == null) {
           callback.onCustomViewHidden();
           return;
@@ -259,8 +257,7 @@ class OhosWebViewController extends PlatformWebViewController {
                     case ohos_webview.PermissionRequest.midiSysex:
                       return OhosWebViewPermissionResourceType.midiSysex;
                     case ohos_webview.PermissionRequest.protectedMediaId:
-                      return OhosWebViewPermissionResourceType
-                          .protectedMediaId;
+                      return OhosWebViewPermissionResourceType.protectedMediaId;
                   }
 
                   // Type not supported.
@@ -367,8 +364,7 @@ class OhosWebViewController extends PlatformWebViewController {
   /// Defaults to false.
   static Future<void> enableDebugging(
     bool enabled, {
-    @visibleForTesting
-    OhosWebViewProxy webViewProxy = const OhosWebViewProxy(),
+    @visibleForTesting OhosWebViewProxy webViewProxy = const OhosWebViewProxy(),
   }) {
     return webViewProxy.setWebContentsDebuggingEnabled(enabled);
   }
@@ -1008,9 +1004,9 @@ class OhosWebViewWidget extends PlatformWebViewWidget {
               params as OhosWebViewWidgetCreationParams),
       viewType: 'plugins.flutter.io/webview',
       surfaceFactory: (
-          BuildContext context,
-          PlatformViewController controller,
-          ) {
+        BuildContext context,
+        PlatformViewController controller,
+      ) {
         return OhosViewSurface(
           controller: controller as OhosViewController,
           gestureRecognizers: _ohosParams.gestureRecognizers,
@@ -1021,7 +1017,7 @@ class OhosWebViewWidget extends PlatformWebViewWidget {
         return _initOhosView(
           params,
           displayWithHybridComposition:
-          _ohosParams.displayWithHybridComposition,
+              _ohosParams.displayWithHybridComposition,
         )
           ..addOnPlatformViewCreatedListener(params.onPlatformViewCreated)
           ..create();
@@ -1030,9 +1026,9 @@ class OhosWebViewWidget extends PlatformWebViewWidget {
   }
 
   OhosViewController _initOhosView(
-      PlatformViewCreationParams params, {
-        required bool displayWithHybridComposition,
-      }) {
+    PlatformViewCreationParams params, {
+    required bool displayWithHybridComposition,
+  }) {
     if (displayWithHybridComposition) {
       return _ohosParams.platformViewsServiceProxy.initExpensiveOhosView(
         id: params.id,
@@ -1054,11 +1050,10 @@ class OhosWebViewWidget extends PlatformWebViewWidget {
     }
   }
 
-
   // Attempt to handle custom views with a default implementation if it has not
   // been set.
   void _trySetDefaultOnShowCustomWidgetCallbacks(BuildContext context) {
-        final OhosWebViewController controller =
+    final OhosWebViewController controller =
         _ohosParams.controller as OhosWebViewController;
 
     if (controller._onShowCustomWidgetCallback == null) {
@@ -1144,7 +1139,6 @@ class OhosCustomViewWidget extends StatelessWidget {
       gestureRecognizers: _ohosParams.gestureRecognizers,
     );
   }
-
 }
 
 /// Signature for the `loadRequest` callback responsible for loading the [url]
@@ -1160,7 +1154,10 @@ class OhosWebResourceError extends WebResourceError {
     required super.description,
     super.isForMainFrame,
     super.url,
-  })  : failingUrl = url,
+  })  :
+        // Keep the legacy alias for clients that still read this field.
+        // ignore: deprecated_member_use_from_same_package
+        failingUrl = url,
         super(
           errorType: _errorCodeToErrorType(errorCode),
         );

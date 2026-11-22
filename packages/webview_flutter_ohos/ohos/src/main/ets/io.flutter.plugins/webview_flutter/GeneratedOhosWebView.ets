@@ -164,7 +164,7 @@ export class WebViewPoint {
       },
 
       setY(setterArg: number): WebViewPointBuilder {
-        builder.x = setterArg;
+        builder.y = setterArg;
         return builder;
       },
       build(): WebViewPoint {
@@ -251,7 +251,7 @@ export abstract class WebViewHostApi {
     data: Uint8Array
   ): void;
 
-  abstract getUrl(instanceId: number): string;
+  abstract getUrl(instanceId: number): Promise<string>;
 
   abstract canGoBack(instanceId: number): boolean;
 
@@ -466,13 +466,14 @@ export abstract class WebViewHostApi {
       if (api != null) {
         channel.setMessageHandler(
           {
-            onMessage: (message: ESObject, reply: Reply<ESObject>) => {
+            onMessage: async (message: ESObject, reply: Reply<ESObject>) => {
               let wrapped: ArrayList<ESObject> = new ArrayList<ESObject>();
               const args: Array<ESObject> = message;
               const instanceIdArg: number = args[0];
               try {
-                const output: string = api.getUrl(instanceIdArg);
-                wrapped.insert(output, 0);
+                await api.getUrl(instanceIdArg).then(output => {
+                  wrapped.insert(output, 0);
+                });
               } catch (err) {
                 const wrappedError: ArrayList<ESObject> = GeneratedOhosWebView.wrapError(err);
                 wrapped = wrappedError;
@@ -1099,7 +1100,7 @@ export class WebViewFlutterApi {
   ) {
     const channel: BasicMessageChannel<ESObject> = new BasicMessageChannel<ESObject>(
         this.binaryMessenger,
-        "dev.flutter.pigeon.webview_flutter_android.WebViewFlutterApi.onScrollChanged",
+        "dev.flutter.pigeon.webview_flutter_ohos.WebViewFlutterApi.onScrollChanged",
         WebViewFlutterApi.getCodec());
     channel.send(
       [webViewInstanceIdArg, leftArg, topArg, oldLeftArg, oldTopArg],
@@ -3332,7 +3333,7 @@ export class FileChooserParamsFlutterApi {
     isCaptureEnabledArg: boolean,
     acceptTypesArg: string[],
     modeArg: FileChooserMode,
-    //filenameHintArg:string,
+    filenameHintArg:string,
     callback: Reply<void>
   ) {
     const channel: BasicMessageChannel<ESObject> = new BasicMessageChannel<ESObject>(
@@ -3342,7 +3343,7 @@ export class FileChooserParamsFlutterApi {
     );
     channel.send(
       [instanceIdArg, isCaptureEnabledArg, acceptTypesArg, modeArg,
-      //filenameHintArg
+      filenameHintArg
       ],
       (channelReply: ESObject) => callback.reply(null)
     );
